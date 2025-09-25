@@ -40,50 +40,40 @@ def rrc(beta: float, sps: int, span_sym: int) -> np.ndarray:
     h = h/np.sqrt(np.sum(h**2))
     return h
 
-@dataclass
-class OOKModulator:
-    """
-    Basic IM/DD OOK (On–Off Keying) modulator.
 
-    Parameters
-    ----------
-    Rs : float
-        Symbol rate [baud] (bits per second for OOK).
-    sps : int
-        Samples per symbol (oversampling factor).
-    P1 : float
-        'On' optical power level (arbitrary units for now).
-    P0 : float
-        'Off' optical power level (can be zero or a small bias).
-        In practice, lasers have a bias (not truly zero), but we keep it generic.
-    """
+@dataclass 
+class OOKModulator:
     Rs: float
     sps: int = 8
     P1: float = 1.0
-    P0: float = 0.0  # set small bias if you want strictly positive power (e.g., 0.05)
+    P0: float = 0.0  # consider small bias, e.g., 0.05..0.2 for realistic ER
+
+    def modulate_bits(self, bits: np.ndarray, return_power: bool = False) -> Signal:
+        """
+        Bits (0/1) → NRZ OOK power → optical field E = sqrt(P).
+        Expects bits as a 1-D numpy array of {0,1}.
+        """
+        b = np.asarray(bits).astype(np.uint8).ravel()
+        # (optional) sanity: assert only 0/1
+        if np.any((b != 0) & (b != 1)):
+            raise ValueError("modulate_bits expects {0,1} values")
+
+        # rectangular NRZ power
+        P = nrz_rect(b, self.sps, self.P1, self.P0)  # real, ≥0
+        # optical field (envelope) for IM/DD modeling
+        E = np.sqrt(P).astype(np.float64)
+
+        fs = self.Rs * self.sps
+        sig_field = Signal(x=E.astype(np.complex128), fs=fs, unit="a.u.",
+                           meta={"bits": b, "sps": self.sps, "coding": "OOK-NRZ"})
+
+        if return_power:
+            sig_field.meta["power_trace"] = P  # optional stash
+        return sig_field
 
     def modulate_text(self, text: str, return_power: bool = False) -> Signal:
         """
-        Text → bits → NRZ OOK power → optical field.
-
-        - We model IM/DD correctly: the photodiode later measures |E|^2 = P.
-        - The fiber/channel in your simulator acts on the optical field E, so we output E = sqrt(P).
-        - E is returned as a complex array but purely real and non-negative here.
+        Convenience: UTF-8 text → bits → same as modulate_bits.
         """
-        bits = text_to_bits(text)                # 0/1 bits
-        P = nrz_rect(bits, self.sps, self.P1, self.P0)  # optical power vs time (real, ≥0)
-
-        # Optical field envelope: E = sqrt(P). For a real IM/DD source, phase is 0 here.
-        E = np.sqrt(P).astype(np.float64)
-
-        fs = self.Rs * self.sps                  # sample rate
-        sig_field = Signal(x=E.astype(np.complex128), fs=fs, unit="a.u.",
-                           meta={"bits": bits, "sps": self.sps, "coding": "OOK-NRZ"})
-
-        if return_power:
-            # Optional convenience: also return a power Signal alongside the field
-            sig_power = Signal(x=P, fs=fs, unit="W(a.u.)",
-                               meta={"bits": bits, "sps": self.sps, "coding": "OOK-NRZ"})
-            # You can return a tuple if you prefer. Keeping API simple: put power in meta instead.
-            sig_field.meta["power_trace"] = P  # lightweight stash
-        return sig_field
+        bits = text_to_bits(text)
+        return self.modulate_bits(bits, return_power=return_power)

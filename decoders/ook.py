@@ -70,19 +70,17 @@ class OOKDecoder:
     offset: int = 0           # if you know symbol alignment; 0 for rectangular TX
     reduce: str = "mean"      # 'mean' or 'center'
 
-    def decode(self, rx_field: Signal) -> Tuple[np.ndarray, str, dict]:
-        """
-        rx_field: complex field after channel (our simulator). We detect power.
-        Returns: (bits, text, info)
-        """
-        P = field_to_power(rx_field)
+    def decode(self, rx_field: Signal):
+        is_elec = (rx_field.meta.get("domain") == "electrical")
+        if is_elec:
+            # already electrical after PD; don't square again
+            x = rx_field.x.real
+            P = Signal(x=x.astype(np.float64), fs=rx_field.fs, unit="V(a.u.)", meta={**rx_field.meta})
+        else:
+            P = field_to_power(rx_field)  # original path
+
         sym_vals = symbols_from_power(P, self.sps, self.offset, self.reduce)
         mu0, mu1, thr = threshold_1d_kmeans(sym_vals)
         bits = slice_ook(sym_vals, thr)
-        text = bits_to_text(bits)
-
-        info = {
-            "mu0": mu0, "mu1": mu1, "thr": thr,
-            "num_symbols": int(sym_vals.size)
-        }
-        return bits, text, info
+        info = {"mu0": float(mu0), "mu1": float(mu1), "thr": float(thr), "num_symbols": int(sym_vals.size)}
+        return bits, "", info

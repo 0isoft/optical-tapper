@@ -1,105 +1,91 @@
 from pathlib import Path
-from datetime import datetime
-from modems.qpsk import QPSKModulator, bits_to_qpsk_gray
-from modems.basic_modulation import OOKModulator
-from channels.fiber_phys import FiberPhysConfig, FiberPhysChannel
-from utils.plots import iq_time, spectrum, constellation_at_centers, power_db, power_linear
-from utils.io import save_signal, load_signal
-from decoders.ook import OOKDecoder
-from decoders.qpsk import QPSKIdealDecoder, qpsk_gray_slicer
-from phy.ethernet66 import encode_64b66b, align_66b_and_descramble, bits_to_bytes
 import numpy as np
+from utils.specs import LinkSpec, TxSpec, RxSpec, FiberSpec
+from core.build_chain import build_blocks
+from core.signal import Signal
+from phy.ethernet66 import encode_64b66b, align_66b_and_descramble, bits_to_bytes
+from decoders.ook import OOKDecoder
+from utils.ook_vis import _symvals, _kmeans_thr, eye_plot, plot_waveforms, nrz_from_bits
+from analogFEs.rxfe import DCRestore
 
 def main():
-    outdir = Path("data"); outdir.mkdir(exist_ok=True)
+    # ---- declare a module + fiber you found online ----
+    spec = LinkSpec(
+        Rs=50e6, sps=8,
+        tx=TxSpec(
+            Pavg_dBm=-4.0,   # pick mid-point in {-8.2..+0.5} dBm
+            ER_dB=3.5,
+            tx_bw_mult=6.0   # single-pole BW ~ 6*Rs (keeps eye open)
+        ),
+        rx=RxSpec(
+            R_A_per_W=0.8,
+            sens_OMA_dBm=-12.6,
+            rx_bw_mult=6.0,
+            ac_hz=1e4,
+            ctle_fz_mult=None,   # enable later when you tighten BW
+            ctle_fp_mult=None,
+            ctle_gain=1.0
+        ),
+        fiber=FiberSpec(
+            L_km=0.005, alpha_db_per_km=0.35, conn_loss_dB=0.5  # example extra loss
+        )
+    )
 
-    text = "Hello world, the quick brown fox jumps over the lazy dog"
+    modem, txfe, fiber, rxfe = build_blocks(spec)
 
+        # ---- TX → FE → fiber → RX ----
+    text = "Hello world, the quick brown fox jumps over the lazy dog."
+    print(text)
+    bits66 = encode_64b66b(text.encode("utf-8"))
+    tx0 = modem.modulate_bits(bits66)
+    tx1 = txfe(tx0)
+    mid = fiber(tx1)
+    rx  = rxfe(mid)               # electrical Signal (complex container, real-valued)
 
-    #modem = OOKModulator(Rs=50e6, sps=8, P1=1.0, P0=0.0)
+    # --- digital DC restore (slow baseline removal)
+    restorer = DCRestore(eps=1e-6)            # ~1e6-sample time constant; tune as needed
+    v_dc = restorer(rx.x.real)                # restored waveform (numpy array)
 
-    modem = QPSKModulator(Rs=50e6, #symbol rate = 50 Msym/s, each QPSK symbol lasts 20 ns
-                          sps=8,   # 8 samples per second (simulate cont. waveform)
-                          beta=0.25, #rolloff factor for RRC
-                          span_sym=8) #filter spans 8 symbols (64 taps)
+    # Put it back into a Signal so downstream code knows it's electrical
+    rx_dc = Signal(x=v_dc.astype(np.complex128), fs=rx.fs, unit=rx.unit,
+                meta={**rx.meta, "domain": "electrical"})
 
+    # -------- quick timing sweep on the *restored* waveform
+    sps = modem.sps
+    best = None
+    for off in range(sps):
+        sy  = _symvals(v_dc, sps, off, reduce="center")
+        thr = _kmeans_thr(sy)
+        rb  = (sy >= thr).astype(np.uint8)
+        _, _, mask = align_66b_and_descramble(rb)
+        score = int(mask.sum())
+        if (best is None) or (score > best["score"]):
+            best = {"off": off, "thr": float(thr), "score": score}
+    best_off = best["off"]
 
-    bits66=encode_64b66b(text.encode("utf-8"))
-    tx = modem.modulate_bits(bits66) #complex baseband optical field envelope 
-
-
-
-    chan = FiberPhysChannel(FiberPhysConfig(
-        L_km=0.005, #5m length of fiber
-        alpha_db_per_km=0.2, #industry standard
-        lam_nm=1550.0, #industry standard but depends on laser
-        D_ps_nm_km=17.0, #industry standard
-        snr_db=None,  
-        rin_db_per_hz=None,       # typical DFB ballpark; optional
-        #noise budget to be calculated from photodiode shot noise, TIA thermal noise, ADC quantization noise, fiber noise=0 for short fiber
-
-        noise_bw_hz=50e6,           # ~ symbol rate or Rx noise BW
-        freq_offset_hz=0.0, #this is sum of chromatic dispersion, freq offset (SI), laser freq offset, PD/TIA mismatches
-        linewidth_Hz=0.0 #of laser (double check depending on chosen laser)
-        #Kerr nonlinearities assumed negligible
-    ))
-
-    rx = chan(tx) #complex baseband envelope of optical field ~ electrical field
-
-
-
-    scale = np.vdot(tx.x, rx.x) / np.vdot(tx.x, tx.x)  # complex least-squares gain
-    err = rx.x - scale * tx.x
-    print("Chan LS gain:", scale)
-    print("RMS err:", np.sqrt(np.mean(np.abs(err)**2)))
-
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    save_signal(outdir/f"tx_field_{stamp}.npz", tx)
-    save_signal(outdir/f"rx_field_{stamp}.npz", rx)
-
-    # ---- VISUALIZE side-by-side behaviors ----
-    iq_time(tx, title="TX field: I/Q vs time")
-    iq_time(rx, title="RX field: I/Q vs time")
-    spectrum(tx, title="TX spectrum (dB rel)")
-    spectrum(rx, title="RX spectrum (dB rel)")
-    constellation_at_centers(tx, tx, title="TX constellation @ centers")
-    constellation_at_centers(tx, rx, title="RX constellation @ centers")
-    power_db(rx, title="RX optical power |E|^2 (dB)")
-    power_linear(rx, title="RX power, linear")
-
-
-    #decoder = OOKDecoder(sps=modem.sps, offset=0, reduce="mean") 
-    #bits, text_out, info = decoder.decode(rx)
-    #print("Decoded text:", text_out)
-    #print("Threshold info:", info)
-
-
-    dec = QPSKIdealDecoder(sps=tx.meta["sps"], h_tx=tx.meta["rrc"], do_phase_est=True)
-    bits_out, text_out, info = dec.decode(rx)
-
+    # -------- decode using the *restored* Signal
+    dec = OOKDecoder(sps=modem.sps, offset=best_off, reduce="center")
+    raw_bits, _, _ = dec.decode(rx_dc)
+    off66, payload_bits, mask = align_66b_and_descramble(raw_bits)
+    text_out = bits_to_bytes(payload_bits).decode("utf-8", errors="replace")
+    print(f"66b valid headers (best off={best_off}):", int(mask.sum()))
     print("Decoded (descrambled) text:", text_out)
-    print("Info:", info)
 
-    
+    # -------- plots (also use restored waveform)
+    fs = modem.Rs * modem.sps
+    t  = np.arange(len(rx_dc.x)) / fs
+    P_tx_rect = nrz_from_bits(tx0.meta["bits"], sps, hi=modem.P1, lo=modem.P0)
+    P_txfe    = np.abs(tx1.x.real)**2
+    P_fiber   = np.abs(mid.x.real)**2
+    v_rx      = v_dc   # restored electrical
 
+    plot_waveforms(t[:int(5e-6*fs)],
+                [P_tx_rect[:int(5e-6*fs)], P_txfe[:int(5e-6*fs)],
+                    P_fiber[:int(5e-6*fs)], v_rx[:int(5e-6*fs)]],
+                ["TX NRZ (rect P)", "Post-TXFE P", "Post-fiber P", "RX electrical (DC-restored)"],
+                "OOK chain (first 5 µs)")
 
-    ##########################
-    print("sanity test")
-    msg = b"Hello world, the quick brown fox jumps over the lazy dog"
-    tx_bits = encode_64b66b(msg)
-
-    # TX mapping only (no upsample, no filter, no channel):
-    syms = bits_to_qpsk_gray(tx_bits)
-    # RX slicer only:
-    rx_bits = qpsk_gray_slicer(syms)
-    
-
-    # 66b align + descramble:
-    off66, payload_bits, mask = align_66b_and_descramble(rx_bits)
-    print("blocks:", tx_bits.size//66, "valid headers:", int(mask.sum()))
-    rec = bits_to_bytes(payload_bits)
-    print("decoded:", rec[:len(msg)])
-    
+    eye_plot(v_rx, sps, span_sym=2, ntraces=300, title="RX eye after analog FE + DC restore")
 
 if __name__ == "__main__":
     main()
