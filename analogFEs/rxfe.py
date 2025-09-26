@@ -1,120 +1,127 @@
+# analogFEs/rxfe.py
 from core.signal import Signal
 import numpy as np
 
-# ---- helpers ----
-
-def dBm_to_mW(dBm): return 10**(dBm/10)
+q = 1.602176634e-19
 
 def one_pole_lpf(x, fs, fc):
-    if fc <= 0: return x
+    if fc is None or fc <= 0: return x
     a = np.exp(-2*np.pi*fc/fs); b = 1 - a
     y = np.empty_like(x, float); acc = 0.0
-    for i, xi in enumerate(x):
+    xr = np.asarray(x, float)
+    for i, xi in enumerate(xr):
         acc = a*acc + b*xi
         y[i] = acc
     return y
 
 def one_pole_hpf(x, fs, fc):
-    if fc <= 0: return x
-    a = np.exp(-2*np.pi*fc/fs); y = np.empty_like(x, float)
-    yprev = 0.0
-    xprev = x[0]                # ← seed with first sample to start near steady state
-    for i, xi in enumerate(x):
+    if fc is None or fc <= 0: return x
+    a = np.exp(-2*np.pi*fc/fs)
+    y = np.empty_like(x, float)
+    xr = np.asarray(x, float)
+    yprev = 0.0; xprev = xr[0]
+    for i, xi in enumerate(xr):
         yi = a*(yprev + xi - xprev)
         y[i] = yi; yprev = yi; xprev = xi
     return y
 
 class CTLE_1z1p:
     def __init__(self, fs, fz, fp, gain=1.0):
-        self.fs, self.g = fs, gain
+        self.fs = fs
+        self.g  = float(gain)
         self.az = np.exp(-2*np.pi*fz/fs)
         self.ap = np.exp(-2*np.pi*fp/fs)
         self.x1 = 0.0; self.y1 = 0.0
     def __call__(self, x):
         y = np.empty_like(x, float)
-        for i, xi in enumerate(x):
-            v = (1-self.az)*xi + self.az*self.x1
-            yi = self.g*v - self.ap*self.y1
-            y[i] = yi; self.x1 = xi; self.y1 = yi
+        xr = np.asarray(x, float)
+        az, ap, g = self.az, self.ap, self.g
+        x1 = self.x1; y1 = self.y1
+        for i, xi in enumerate(xr):
+            v  = (1-az)*xi + az*x1
+            yi = g*v - ap*y1
+            y[i] = yi; x1 = xi; y1 = yi
+        self.x1 = x1; self.y1 = y1
         return y
 
-#limiting amplifier to restor dc value
 class DCRestore:
     def __init__(self, eps=1e-5):
-        self.mu = float(eps)   # ~ 1 / time-constant-in-samples
-        self.m = 0.0
+        self.mu = float(eps)
+        self.m  = 0.0
     def __call__(self, x):
-        y = np.empty_like(x, dtype=float)
-        m = self.m
-        mu = self.mu
-        for i, xi in enumerate(x):
-            m += mu * (xi - m)    # slow average of the baseline
-            y[i] = xi - m         # remove it
+        y = np.empty_like(x, float)
+        m = self.m; mu = self.mu
+        xr = np.asarray(x, float)
+        for i, xi in enumerate(xr):
+            m += mu * (xi - m)
+            y[i] = xi - m
         self.m = m
         return y
-    
-# ---- RX FE ----
-q = 1.602176634e-19
-
-def rx_ok_vs_sensitivity(OMA_rx_dBm, sens_OMA_dBm):
-    return OMA_rx_dBm >= sens_OMA_dBm  # True if above sensitivity
-
-def rx_noise_for_Q(R_A_per_W, OMA_rx_mW, ENBW_Hz, Q=7.0, Iavg_A=None, i_th_A_per_sqrtHz=None):
-    q = 1.602176634e-19
-    OMA_W = OMA_rx_mW*1e-3
-    eye_A = R_A_per_W * OMA_W
-    # choose thermal term to meet target Q after shot noise
-    ish = 0.0 if Iavg_A is None else np.sqrt(max(0.0, 2*q*Iavg_A*ENBW_Hz))
-    sigma_needed = eye_A / Q
-    ith = 0.0 if i_th_A_per_sqrtHz is None else i_th_A_per_sqrtHz*np.sqrt(ENBW_Hz)
-    # if thermal is free, set it to hit sigma_needed in quadrature:
-    if i_th_A_per_sqrtHz is None:
-        ith = np.sqrt(max(0.0, sigma_needed**2 - ish**2))
-        i_th_A_per_sqrtHz = ith/np.sqrt(ENBW_Hz)
-    sigma = np.sqrt(ish**2 + ith**2)
-    return {"eye_A": eye_A, "sigma_A": sigma, "Q": (eye_A/max(sigma,1e-30)),
-            "i_th_A_per_sqrtHz": i_th_A_per_sqrtHz}
-
-
 
 class RxFE:
-    def __init__(self, fs, R_A_per_W=0.8, rx_bw_hz=0.8e9, ac_hz=1e5,
-                 tia_in_noise_A_per_sqrtHz=2e-12, limiter=None,
+    def __init__(self, fs,
+                 R_A_per_W=0.8,
+                 rx_bw_hz=0.8e9,
+                 ac_hz=1e5,
+                 tia_in_noise_A_per_sqrtHz=2e-12,
+                 limiter=None,
                  ctle_fz=None, ctle_fp=None, ctle_gain=1.0,
-                 rin_db_per_hz=None):
-        self.fs=fs; self.R=R_A_per_W; self.rx_bw=rx_bw_hz; self.ac=ac_hz
-        self.en=tia_in_noise_A_per_sqrtHz; self.rin=rin_db_per_hz
-        self.ctle = (CTLE_1z1p(fs, ctle_fz, ctle_fp, ctle_gain)
-                     if (ctle_fz is not None and ctle_fp is not None) else None)
-        self.lim = limiter
+                 rin_db_per_hz=None,
+                 R_TIA_ohm=10e3, post_gain=1.0):
+        self.fs   = float(fs)
+        self.R    = float(R_A_per_W)
+        self.rx_bw= float(rx_bw_hz)
+        self.ac   = float(ac_hz)
+        self.en   = float(tia_in_noise_A_per_sqrtHz)
+        self.rin  = rin_db_per_hz
+        self.RTIA = float(R_TIA_ohm)
+        self.G    = float(post_gain)
+        self.lim  = limiter
+
+        # Build CTLE only if meaningfully enabled
+        self.ctle = None
+        if (ctle_fz is not None) and (ctle_fp is not None) and (ctle_gain is not None) and (ctle_gain != 1.0):
+            self.ctle = CTLE_1z1p(self.fs, float(ctle_fz), float(ctle_fp), float(ctle_gain))
 
     def __call__(self, fiber_field: Signal) -> Signal:
         fs = self.fs
-        P = np.abs(fiber_field.x.real)**2
-        I_sig = self.R * P
+        xopt = fiber_field.x.real
+        P = np.abs(xopt)**2                     # optical power [W]
+        I_sig = self.R * P                      # PD current [A]
 
-        # white-ish noise over Nyquist (quick model)
-        Bn = fs/2
-        ENBW_rx = 1.57 * self.rx_bw   # ~π/2 * fc for 1-pole LPF
-        # shot noise
-        Iavg = max(I_sig.mean(), 1e-12)
-        i_shot = np.sqrt(2*q*Iavg*ENBW_rx) * np.random.randn(len(I_sig))
-        # thermal
-        i_th   = self.en * np.sqrt(ENBW_rx) * np.random.randn(len(I_sig))
-        # RIN (if used)
+        N = I_sig.size
+        Iavg = max(float(np.mean(I_sig)), 1e-15)
+
+        # --- White noise per-sample (to Nyquist), then shape by filters ---
+        sigma_sh = np.sqrt(2*q*Iavg * (fs/2.0))    # A_rms per sample
+        sigma_th = self.en * np.sqrt(fs/2.0)       # A_rms per sample
+
+        i_shot = sigma_sh * np.random.randn(N)
+        i_th   = sigma_th * np.random.randn(N)
+
+        i_rin = 0.0
         if self.rin is not None:
-            rin_lin = 10**(self.rin/10)
-            i_rin = self.R * (P * np.sqrt(rin_lin*ENBW_rx) * np.random.randn(len(P)))
-        else:
-            i_rin = 0.0
-        v = I_sig + i_shot + i_th + i_rin
+            rin_lin  = 10**(self.rin/10.0)
+            # simple RIN model around average power/current
+            sigma_rin = self.R * Iavg * np.sqrt(rin_lin * (fs/2.0))
+            i_rin     = sigma_rin * np.random.randn(N)
 
+        i_total = I_sig + i_shot + i_th + i_rin
+
+        # --- Filter chain (current domain) ---
+        v = i_total
         v = one_pole_hpf(v, fs, self.ac)
-        if self.ctle: v = self.ctle(v)
+        if self.ctle is not None:
+            v = self.ctle(v)
         v = one_pole_lpf(v, fs, self.rx_bw)
-        if self.lim:
+
+        # --- TIA + post gain to volts ---
+        v = v * self.RTIA * self.G
+
+        # Optional limiter (e.g., limiting amplifier emulation)
+        if self.lim is not None:
             lo, hi = self.lim
             v = np.clip(v, lo, hi)
 
-        return Signal(x=v.astype(np.complex128), fs=fs, unit="A→V(a.u.)",
-              meta={**fiber_field.meta, "domain": "electrical"})
+        return Signal(x=v.astype(np.complex128), fs=fs, unit="V",
+                      meta={**fiber_field.meta, "domain":"electrical"})
