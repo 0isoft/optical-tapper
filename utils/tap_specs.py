@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 @dataclass
 class TapOpticalSpec:
-    coup_dB: float = -40.0         # optical coupling from fiber to tap
+    coup_dB: float = -35.0         # optical coupling from fiber to tap
     R_A_per_W: float = 0.7         # PD responsivity @ 1310 nm
     tia_bw_Hz: float = 1.0e9       # TIA -3 dB
     ac_hz: float = 5e3             # AC-coupling HPF (very low)
@@ -12,6 +12,13 @@ class TapOpticalSpec:
     ctle_gain: float = 1.0
     in_therm_A_per_sqrtHz: float = 1.5e-12  # TIA input current noise
     rin_dB_per_Hz: float | None = None      # optional RIN
+
+     # --- APD knobs (None => behaves like a PIN) ---
+    pd_kind: str = "pin"          # "pin" or "apd"
+    M: float = 1.0                # APD gain; use >1 only if pd_kind == "apd"
+    kA: float = 0.3               # ionization ratio for McIntyre excess noise
+    Idark_A: float = 50e-9        # APD dark current (A) at chosen bias
+    apd_bw_alpha: float = 0.7     # BW scales as / M^alpha
 
 @dataclass
 class TapEMSpec:

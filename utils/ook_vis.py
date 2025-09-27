@@ -6,20 +6,20 @@ def nrz_from_bits(bits, sps, hi=1.0, lo=0.0):
     levels = np.where(bits > 0, hi, lo).astype(float)
     return np.repeat(levels, sps)
 
-def eye_plot(x, sps, span_sym=2, ntraces=200, title="Eye"):
-    """Simple eye diagram around 0 amplitude."""
+def eye_plot(x, sps, span_sym=2, ntraces=200, title="Eye", yscale=1.0, ylabel="Amplitude"):
     seglen = span_sym * sps
     n = min(ntraces, (len(x) - seglen) // sps)
     if n <= 0: 
         return
+    import matplotlib.pyplot as plt
     plt.figure()
     for k in range(n):
         i0 = k * sps
-        seg = x[i0:i0+seglen]
+        seg = x[i0:i0+seglen] * yscale
         t = (np.arange(seglen) - seglen/2) / sps
         plt.plot(t, seg, linewidth=0.6)
     plt.grid(True, alpha=0.3); plt.title(title)
-    plt.xlabel("UI"); plt.ylabel("Amplitude")
+    plt.xlabel("UI"); plt.ylabel(ylabel)
     plt.tight_layout()
     plt.savefig(f"{title.replace(' ', '_').lower()}.png", dpi=200)
     plt.close()

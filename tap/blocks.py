@@ -49,27 +49,55 @@ class OpticalTapAFE:
         coup_lin = 10**(self.s.coup_dB/10)
         P_tap = P_main * coup_lin
 
-        I_sig = self.s.R_A_per_W * P_tap  # A
-        v = I_sig * self.RTIA             # V at TIA output
+        # --- PD current model ---
+        if getattr(self.s, "pd_kind", "pin").lower() == "apd":
+            M = getattr(self.s, "M", 10.0)
+            kA = getattr(self.s, "kA", 0.1)
+            # Effective responsivity
+            R_eff = self.s.R_A_per_W * M
+        else:  # PIN
+            M = 1.0
+            kA = 0.0
+            R_eff = self.s.R_A_per_W
 
-        # HPF / CTLE / LPF
+        I_sig = R_eff * P_tap  # signal photocurrent [A]
+        v = I_sig * self.RTIA  # TIA output [V]
+
+        # --- Filters ---
         v = one_pole_hpf(v, fs, self.s.ac_hz)
         if self.s.ctle_fz_Hz and self.s.ctle_fp_Hz:
             v = CTLE_1z1p(fs, self.s.ctle_fz_Hz, self.s.ctle_fp_Hz, self.s.ctle_gain)(v)
-        v = one_pole_lpf(v, fs, self.s.tia_bw_Hz)
+
+        # APD bandwidth penalty
+        tia_bw = self.s.tia_bw_Hz
+        if getattr(self.s, "pd_kind", "pin").lower() == "apd":
+            alpha = getattr(self.s, "apd_bw_alpha", 0.3)
+            tia_bw = tia_bw / (M**alpha)
+
+        v = one_pole_lpf(v, fs, tia_bw)
         v *= self.G
 
-        # Add output-referred noise (after filtering): ENBW ≈ 1.57*BW
-        ENBW = 1.57 * self.s.tia_bw_Hz
-        # shot + input current noise (A/√Hz) → multiply by RTIA to V/√Hz
+        # --- Noise model ---
+        ENBW = 1.57 * tia_bw
         Iavg = max(I_sig.mean(), 1e-15)
-        v_shot = (np.sqrt(2*q*Iavg*ENBW) * self.RTIA) * np.random.randn(len(v))
+
+        if getattr(self.s, "pd_kind", "pin").lower() == "apd":
+            # McIntyre excess noise factor
+            F_M = kA * M + (1 - kA) * (2 - 1/M)
+            sigma_sh = np.sqrt(2*q*(Iavg + getattr(self.s, "Idark_A", 0.0))*ENBW) * M * np.sqrt(F_M)
+        else:
+            sigma_sh = np.sqrt(2*q*Iavg*ENBW)
+
+        # Current noise to voltage noise
+        v_shot = sigma_sh * self.RTIA * np.random.randn(len(v))
         v_th   = (self.s.in_therm_A_per_sqrtHz*np.sqrt(ENBW) * self.RTIA) * np.random.randn(len(v))
+
         if self.s.rin_dB_per_Hz is not None:
             rin_lin = 10**(self.s.rin_dB_per_Hz/10)
             v_rin = (self.s.R_A_per_W*np.sqrt(rin_lin*ENBW)*P_tap*self.RTIA) * np.random.randn(len(v))
         else:
             v_rin = 0.0
+
         v = v + v_shot + v_th + v_rin
 
         return Signal(x=v.astype(np.complex128), fs=fs, unit="Vtap", meta={"domain":"electrical"})

@@ -17,7 +17,8 @@ from tap.blocks import OpticalTapAFE, EMTapAFE
 from utils.tap_specs import TapOpticalSpec, TapEMSpec, TapADCSpec, TapFusionSpec
 
 from utils.metrics import (
-    symbol_centers, eye_stats, empirical_ber, plot_ber_points, plot_snr_bars
+    symbol_centers, eye_stats_da, empirical_ber_aligned, plot_ber_points, plot_snr_bars, align_symbols_and_bits,
+    payload_symbol_indices, eye_stats_da_from_indices
 )
 
 from utils.sanity_checks import (
@@ -83,20 +84,27 @@ def main():
 
     # ---- tap specs (unchanged) ----
     opt_spec = TapOpticalSpec(
-        coup_dB=-32, #<0.1% of optical power is picked off -40dB would be more realistic
+        coup_dB=-30, #<0.1% of optical power is picked off -40dB would be more realistic
         #given the covert tap (invisibility to main receiver)
         R_A_per_W=0.8, #we will pick an InGaAs PIN to match this spec
         tia_bw_Hz=1.2 * modem.Rs, #we will  have a TIA+frontend that can
         #ideally support 20% more than the symbol rate (to avoid too much ISI)
         ac_hz=5e3, #HPF wander removal (long term drift)
-        ctle_fz_Hz=None, ctle_fp_Hz=None, ctle_gain=1.0 #not in the passsive tap probe
+        ctle_fz_Hz=None, ctle_fp_Hz=None, ctle_gain=1.0, #not in the passsive tap probe
+
+        #pd_kind="apd",
+        #M=10.0,
+        #kA=0.3,
+        #apd_bw_alpha=0.7,
+        #in_therm_A_per_sqrtHz=1.5e-12,
+        #rin_dB_per_Hz=None
     )
     em_spec  = TapEMSpec(
         gain_E=0.08, gain_H=0.03, delay_s=0.8e-9, bw_Hz=1.5 * modem.Rs,
         noise_V_per_sqrtHz=5e-4
         #these numbers are more arbitrary (dependance on geometry, trace distances, stackup, shielding..)
     )
-    adc_spec = TapADCSpec(fs=None, nbits=10, vref=0.02, jitter_rms_s=None)
+    adc_spec = TapADCSpec(fs=None, nbits=10, vref=0.08, jitter_rms_s=None)
     fus_spec = TapFusionSpec(lms_mu=5e-4, train_syms=3000)
 
     # ---- tap AFEs / helpers ----
@@ -113,10 +121,13 @@ def main():
     )
 
     # DC blocks (disambiguated): TapDC for tap streams, RxDC for main RX
-    dcfix    = TapDC(eps=5e-7)
+    # very slow IIR average + subtraction, epsilon sets time constant 
+    dcfix    = TapDC(eps=5e-7) 
     restorer = RxDC(eps=1e-6)
 
-    # simple fusion LMS
+    # simple fusion LMS, pick weights to linearly combine paths from tap 
+    # so slicer makes fewer errors
+    # if EM branch is noise, w_em is near zero. if EM adds useful SNR, w_em grows
     fuser = SimpleFusionLMS(mu=fus_spec.lms_mu, train_syms=fus_spec.train_syms)
 
     # ---- health checks ----
@@ -213,7 +224,10 @@ def main():
     print("\n[PCB/tap levels]")
     print(f"  <P_tx_rect>        = {np.mean(P_tx_rect):.3e} (ref 0 dB)")
     print(f"  <P_txfe>           = {np.mean(P_txfe):.3e}  ({pwr_db(P_txfe):+6.2f} dB rel TX)")
-    print(f"  <P_fiber>          = {np.mean(P_fiber):.3e}  ({pwr_db(P_fiber):+6.2f} dB rel TX)")
+    #print(f"  <P_fiber>          = {np.mean(P_fiber):.3e}  ({pwr_db(P_fiber):+6.2f} dB rel TX)")
+    def mW_to_dBm(mW): return 10*np.log10(mW + 1e-30)
+    print(f"  P_rx_avg  ≈ {1e3*np.mean(P_fiber):.3f} mW  ({mW_to_dBm(1e3*np.mean(P_fiber)):+.2f} dBm)")
+    print(f"  P_tap_avg ≈ {1e6*np.mean(P_tap):.3f} µW  ({mW_to_dBm(1e3*np.mean(P_tap)):+.2f} dBm)")
     print(f"  <P_tap>            = {np.mean(P_tap):.3e}  ({pwr_db(P_tap):+6.2f} dB rel TX)")
     Vrms_opt = np.sqrt(np.mean(V_opt ** 2)); Vpp_opt = np.max(V_opt) - np.min(V_opt)
     Vrms_em  = np.sqrt(np.mean(V_em  ** 2)); Vpp_em  = np.max(V_em)  - np.min(V_em)
@@ -245,8 +259,24 @@ def main():
     )
 
     # ---- eyes for tap (pre-ADC voltages) ----
-    eye_plot(V_opt, sps, span_sym=2, ntraces=400, title="Eye @ Optical AFE output (pre-ADC)")
-    eye_plot(V_em,  sps, span_sym=2, ntraces=400, title="Eye @ EM AFE output (pre-ADC)")
+    #eye_plot(V_opt, sps, span_sym=2, ntraces=400, title="Eye @ Optical AFE output (pre-ADC)")
+    #eye_plot(V_em,  sps, span_sym=2, ntraces=400, title="Eye @ EM AFE output (pre-ADC)")
+
+    #optical output, before adc
+    eye_plot(
+    V_opt, sps,
+    span_sym=2, ntraces=400,
+    title="Eye @ Optical AFE output (pre-ADC)",
+    yscale=1.0, ylabel="V"
+    )
+
+    # EM AFE output (same: volts, though mostly noise)
+    eye_plot(
+        V_em, sps,
+        span_sym=2, ntraces=400,
+        title="Eye @ EM AFE output (pre-ADC)",
+        yscale=1.0, ylabel="V"
+    )
 
     # ---- digital DC restore (tap paths) ----
     opt_dr = dcfix(opt_d)
@@ -332,32 +362,29 @@ def main():
     P_fiber   = np.abs(mid.x.real) ** 2
     v_rx      = v_dc
 
+    t_start = int(100e-6 * fs)      # index at 100 µs
+    t_end   = int(105e-6 * fs)      # index at 105 µs
+
     plot_waveforms(
-        t[:int(5e-6 * fs)],
-        [P_tx_rect[:int(5e-6 * fs)], P_txfe[:int(5e-6 * fs)],
-         P_fiber[:int(5e-6 * fs)], v_rx[:int(5e-6 * fs)]],
+        t[t_start:t_end],
+        [
+            P_tx_rect[t_start:t_end],
+            P_txfe[t_start:t_end],
+            P_fiber[t_start:t_end],
+            v_rx[t_start:t_end],
+        ],
         ["TX NRZ (rect P)", "Post-TXFE P", "Post-fiber P", "RX electrical (DC-restored)"],
-        "OOK chain (first 5 µs)"
+        "OOK chain (100–105 µs)"
     )
-    eye_plot(v_rx, sps, span_sym=2, ntraces=300, title="RX eye after analog FE + DC restore")
-
-    # ---- eye/SNR metrics ----
-    sym_rx  = symbol_centers(v_dc, sps, best_off_rx)
-    tap_eye = eye_stats(symbol_centers(opt_dr, sps, best_off))
-    rx_eye  = eye_stats(sym_rx)
-    print(f"[SNR] tap eye: {tap_eye['snr_db']:.2f} dB   (mu0={tap_eye['mu0']:.3g}, mu1={tap_eye['mu1']:.3g})")
-    print(f"[SNR] rx  eye: {rx_eye['snr_db']:.2f} dB   (mu0={rx_eye['mu0']:.3g}, mu1={rx_eye['mu1']:.3g})")
-
-    # ---- Empirical BER (ALIGNMENT-AWARE, payload only) ----
-    ber_tap = empirical_ber(tap_aln, tx_aln)
-    ber_rx  = empirical_ber(rx_aln,  tx_aln_rx)
-    print(f"[BER payload-aligned] tap: {ber_tap['ber']:.3e}  (errors={ber_tap['nerr']}/{ber_tap['nbits']})")
-    print(f"[BER payload-aligned] rx : {ber_rx ['ber']:.3e}  (errors={ber_rx ['nerr']}/{ber_rx ['nbits']})")
-
-    # ---- summary plots ----
-    plot_ber_points([("tap", ber_tap["ber"]), ("normal", ber_rx["ber"])])
-    plot_snr_bars  ([("tap", tap_eye["snr_db"]), ("normal", rx_eye["snr_db"])])
-
+    #eye_plot(v_rx, sps, span_sym=2, ntraces=300, title="RX eye after analog FE + DC restore")
+    eye_plot(
+    v_rx, sps,
+    span_sym=2, ntraces=300,
+    title="RX eye after analog FE + DC restore",
+    yscale=1.0, ylabel="V"
+    )
+    
+    
     # ---- theoretical Q/BER for RX ----
     sym_rx_trace = symbol_centers_trace(v_dc, sps, best_off_rx)
     esr = eye_from_symbols(sym_rx_trace)
@@ -365,6 +392,12 @@ def main():
     print(f"[sanity] RX eye: mu0={esr['mu0']:.4g}, mu1={esr['mu1']:.4g}, "
           f"s0={esr['s0']:.3g}, s1={esr['s1']:.3g}, Q≈{Qr:.2f}, BER_th≈{berr:.2e}")
 
+    # --- TAP eye sanity stats ---
+    sym_tap_trace = symbol_centers_trace(opt_dr, sps, best_off)
+    est_tap = eye_from_symbols(sym_tap_trace)
+    Qt, bert = q_and_ber(est_tap["mu0"], est_tap["mu1"], est_tap["s0"], est_tap["s1"])
+    print(f"[sanity] TAP eye: mu0={est_tap['mu0']:.4g}, mu1={est_tap['mu1']:.4g}, "
+      f"s0={est_tap['s0']:.3g}, s1={est_tap['s1']:.3g}, Q≈{Qt:.2f}, BER_th≈{bert:.2e}")
 
 if __name__ == "__main__":
     main()
