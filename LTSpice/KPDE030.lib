@@ -1,0 +1,7 @@
+* KPDE030 300um InGaAs PIN PD (simple)
+* Pins: A = anode, C = cathode, PW = optical power port (V=Watts)
+.subckt KPDE030 A C PW
+GPH A C VALUE = { 0.85*V(PW) }   ; 0.85 A/W @1310 nm
+Idark A C 100p                   ; 100 pA dark current
+Cj   A C 4p                      ; 4 pF junction cap
+.ends KPDE030

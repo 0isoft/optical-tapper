@@ -1,0 +1,53 @@
+Circuit: * C:\Users\ocata\OneDrive\Desktop\LTSpice\AFE.asc
+
+V1: Removing PWL point (1e-008,4.37e-007)
+V1: Removing PWL point (1e-007,1.95e-007)
+Direct Newton iteration failed to find .op point.  (Use ".option noopiter" to skip.)
+Starting Gmin stepping
+Gmin = 10
+Gmin = 1.07374
+Gmin = 0.115292
+Gmin = 0.0123794
+Gmin = 0.00132923
+Gmin = 0.000142725
+Gmin = 1.5325e-005
+Gmin = 1.6455e-006
+vernier = 0.5
+vernier = 0.25
+Gmin = 9.18165e-007
+vernier = 0.333333
+vernier = 0.444444
+Gmin = 3.89715e-007
+vernier = 0.592592
+vernier = 0.790123
+Gmin = 1.03562e-007
+vernier = 1
+Gmin = 1.3779e-008
+Gmin = 1.47951e-009
+Gmin = 1.58861e-010
+Gmin = 1.70576e-011
+Gmin = 1.83154e-012
+Gmin = 1.9666e-013
+Gmin = 0
+Gmin stepping succeeded in finding the operating point.
+
+Ignoring empty pin current: Ix(x1:pw)
+Ignoring empty pin current: Ix(x1:pw)
+
+Date: Mon Sep 29 00:35:26 2025
+Total elapsed time: 0.076 seconds.
+
+tnom = 27
+temp = 27
+method = modified trap
+totiter = 2944
+traniter = 2180
+tranpoints = 1091
+accept = 1079
+rejected = 12
+matrix size = 32
+fillins = 36
+solver = Normal
+Thread vector: 5.5/3.6[3] 2.2/1.2[3] 0.7/0.5[3] 0.1/0.6[1]  2592/500
+Matrix Compiler1:     223 opcodes  0.7/[0.3]/0.4
+Matrix Compiler2: off
