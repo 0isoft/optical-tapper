@@ -10,14 +10,25 @@ C2 vdd 0 0.5µ
 R2 SUM VOUT 5k
 C3 SUM VOUT 0.5p
 V4 -2.5 0 -2.5
-C4 TIA_out VOUT 10n
-R3 TIA_out 0 10k
-XU3 TIA_out N002 buffer_out vdd -2.5 LT6201
-R4 N002 0 1k
-R5 buffer_out N002 2k
+C4 N002 VOUT 10n
+R3 N002 0 10k
+R4 N003 0 1.5k
+R5 buffer_out N003 5k
+XU2 TIA_out N003 buffer_out vdd -2.5 NC_02 LTC6228
+C5 buffer_out N003 1p
+R6 TIA_out N002 30
+XU3 buffer_out dc_reference vdd 0 0 comparator_out NC_03 0 LT1711
+R7 vdd dc_reference 3.215k
+R8 dc_reference 0 1k
+R9 comparator_out dc_reference 100k
+XU4 comparator_out dc_reference2 vdd 0 0 comparator2_out NC_04 0 LT1711
+R10 vdd dc_reference2 3.215k
+R11 dc_reference2 0 1k
 .include "KPDE030.lib"
 ;.ac dec 100 10k 1G
 .tran 2u
+.lib LTC1.lib
 .lib LTC2.lib
+.lib LTC6228.lib
 .backanno
 .end
