@@ -3,7 +3,7 @@ XU1 0 SUM VOUT vdd -2.5 NC_01 LTC6268
 XX1 SUM BIAS OPT KPDE030 KPDE030
 V2 N001 0 2.5
 C1 BIAS 0 10n
-V1 OPT 0 PWL(0n 0.437u 10n 0.437u 20n 0.437u 30n 0.437u 40n 0.437u 50n 0.437u 60n 0.437u 70n 0.437u 80n 0.437u 90n 0.195u 100n 0.195u 110n 0.195u 120n 0.195u 130n 0.195u 140n 0.195u 150n 0.437u 160n 0.437u 170n 0.195u 180n 0.437u 190n 0.195u 200n 0.437u 210n 0.195u) AC 1
+V1 OPT 0 PWL(0n 0.195u 10n 0.195u 20n 0.195u 30n 0.437u 40n 0.437u 50n 0.437u 60n 0.437u 70n 0.437u 80n 0.437u 90n 0.437u 100n 0.437u 110n 0.437u 120n 0.437u 130n 0.437u 140n 0.437u 150n 0.437u 160n 0.437u 170n 0.195u 180n 0.195u 190n 0.195u 200n 0.195u 210n 0.195u 220n 0.195u 230n 0.195u 240n 0.195u 250n 0.195u 260n 0.195u 270n 0.195u 280n 0.195u 290n 0.195u 300n 0.437u 310n 0.195u 320n 0.437u 330n 0.195u 340n 0.437u 350n 0.195u 360n 0.437u 370n 0.195u 380n 0.437u 390n 0.195u 400n 0.437u 410n 0.195u 420n 0.437u 430n 0.195u 440n 0.437u 450n 0.195u 460n 0.437u 470n 0.195u 480n 0.437u 490n 0.195u 500n 0.437u) AC 0.2u
 R1 BIAS N001 100k
 V3 VDD 0 2.5
 C2 vdd 0 0.5µ
@@ -20,13 +20,22 @@ R6 TIA_out N002 30
 XU3 buffer_out dc_reference vdd 0 0 comparator_out NC_03 0 LT1711
 R7 vdd dc_reference 3.215k
 R8 dc_reference 0 1k
-R9 comparator_out dc_reference 100k
-XU4 comparator_out dc_reference2 vdd 0 0 comparator2_out NC_04 0 LT1711
-R10 vdd dc_reference2 3.215k
+R9 comparator_out dc_reference 30k
+XU4 comparator_out comparator1_DC_value vdd 0 0 comparator2_out NC_04 0 LT1711
+R10 vdd dc_reference2 3k
 R11 dc_reference2 0 1k
+R12 buffer_DC_value buffer_out 316
+C6 buffer_DC_value 0 1n
+R13 comparator1_DC_value comparator_out 316
+C7 comparator1_DC_value 0 1n
+R14 buffer_DC_value dc_reference 1k
 .include "KPDE030.lib"
 ;.ac dec 100 10k 1G
-.tran 2u
+;.tran 2u
+.noise V(buffer_out) V1 dec 1000 1Meg 250Meg
+.meas noise Nfloor FIND V(onoise)*1e-9 AT 50Meg
+.meas noise Vn2    INTEG ( (V(onoise)*1e-9)^2 ) FROM 1Meg TO 250Meg
+.meas noise VnRMS  PARAM sqrt(Vn2)
 .lib LTC1.lib
 .lib LTC2.lib
 .lib LTC6228.lib

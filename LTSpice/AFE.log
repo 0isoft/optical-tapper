@@ -1,7 +1,8 @@
 Circuit: * C:\Users\ocata\OneDrive\Desktop\LTSpice\AFE.asc
 
-V1: Removing PWL point (1e-008,4.37e-007)
-V1: Removing PWL point (1e-007,1.95e-007)
+V1: Removing PWL point (1e-008,1.95e-007)
+V1: Removing PWL point (4e-008,4.37e-007)
+V1: Removing PWL point (1.8e-007,1.95e-007)
 Direct Newton iteration failed to find .op point.  (Use ".option noopiter" to skip.)
 Starting Gmin stepping
 Gmin = 10
@@ -11,68 +12,46 @@ Gmin = 0.0123794
 Gmin = 0.00132923
 Gmin = 0.000142725
 Gmin = 1.5325e-005
+Gmin = 1.6455e-006
 vernier = 0.5
-Gmin = 2.5711e-006
 vernier = 0.25
-vernier = 0.125
-vernier = 0.0625
-vernier = 0.03125
-Gmin = 2.34653e-006
-vernier = 0.015625
-vernier = 0.0208333
-Gmin = 2.25391e-006
-vernier = 0.0277778
-vernier = 0.037037
-Gmin = 2.1008e-006
-vernier = 0.0493827
-Gmin = 1.88105e-006
-vernier = 0.0658435
-vernier = 0.0877914
-Gmin = 1.56366e-006
-vernier = 0.117055
-vernier = 0.156073
-Gmin = 1.16648e-006
-vernier = 0.0780367
-vernier = 0.104049
-Gmin = 9.68266e-007
-vernier = 0.138732
-Gmin = 7.12099e-007
-vernier = 0.184976
-vernier = 0.246634
-Gmin = 4.27369e-007
-vernier = 0.328846
-vernier = 0.438461
-Gmin = 1.91697e-007
-vernier = 0.584614
-Gmin = 5.57788e-008
-vernier = 0.779486
+Gmin = 9.18165e-007
+vernier = 0.333333
+vernier = 0.444444
+Gmin = 3.89715e-007
+vernier = 0.592592
+vernier = 0.790123
+Gmin = 1.03562e-007
 vernier = 1
-Gmin = 7.85059e-009
-Gmin = 8.42951e-010
-Gmin = 9.05112e-011
-Gmin = 9.71856e-012
-Gmin = 1.04352e-012
-Gmin = 1.12047e-013
+Gmin = 1.3779e-008
+Gmin = 1.47951e-009
+Gmin = 1.58861e-010
+Gmin = 1.70576e-011
+Gmin = 1.83154e-012
+Gmin = 1.9666e-013
 Gmin = 0
 Gmin stepping succeeded in finding the operating point.
 
 Ignoring empty pin current: Ix(x1:pw)
-Ignoring empty pin current: Ix(x1:pw)
 
-Date: Mon Sep 29 12:36:59 2025
-Total elapsed time: 0.210 seconds.
+nfloor: v(onoise)*1e-9=1.58387e-016 at 5e+007
+vn2: INTEG( (v(onoise)*1e-9)^2 )=15779.7 FROM 1e+006 TO 2.5e+008
+vnrms: sqrt(vn2)=125.617
+
+
+Date: Tue Sep 30 22:41:13 2025
+Total elapsed time: 0.263 seconds.
 
 tnom = 27
 temp = 27
-method = modified trap
-totiter = 5576
-traniter = 3958
-tranpoints = 1512
-accept = 1352
-rejected = 160
-matrix size = 76
-fillins = 81
+method = trap
+totiter = 936
+traniter = 0
+tranpoints = 0
+accept = 0
+rejected = 0
+matrix size = 78
+fillins = 95
 solver = Normal
-Thread vector: 21.4/8.4[8] 4.2/2.0[8] 2.3/1.1[8] 0.3/0.8[1]  2592/500
-Matrix Compiler1:     419 opcodes  1.3/[0.6]/0.6
+Matrix Compiler1:     507 opcodes
 Matrix Compiler2: off
