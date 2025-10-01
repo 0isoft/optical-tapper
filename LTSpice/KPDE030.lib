@@ -1,7 +1,26 @@
-* KPDE030 300um InGaAs PIN PD (simple)
-* Pins: A = anode, C = cathode, PW = optical power port (V=Watts)
 .subckt KPDE030 A C PW
-GPH A C VALUE = { 0.85*V(PW) }   ; 0.85 A/W @1310 nm
-Idark A C 100p                   ; 100 pA dark current
-Cj   A C 4p                      ; 4 pF junction cap
-.ends KPDE030
+* Photocurrent (noiseless DC component)
+GPH A C VALUE = { 0.85*V(PW) }
+
+* Dark current
+Idark A C 100p
+
+* Shot noise via noisy resistor - but this time, scaled properly
+* For I=300nA, shot noise = 0.87 pA/sqrt(Hz)
+* We need a resistor R such that sqrt(4kT/R) = 0.87 pA/sqrt(Hz)
+* R = 4kT / (0.87e-12)^2 = 1.73e16 Ω (impossibly large!)
+* This approach won't work...
+
+* Instead: use a current source with AC noise specification
+* LTspice syntax: I_source node1 node2 DC {dc_value} AC {ac_value} ...
+* But this doesn't create white noise for .noise analysis either
+
+* NEW APPROACH: Behavioral noise with proper bandwidth
+* Shot noise PSD should be constant (white noise)
+* We fake it with a very large resistor in a side branch
+B_shot_helper 0 n_shot I=V(n_shot)/1Meg
+R_shot n_shot C 575k  ; This gives sqrt(4kT/575k) ≈ 0.17 pA/sqrt(Hz)
+
+* Junction capacitance
+Cj A C 4p
+.ends

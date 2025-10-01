@@ -3,7 +3,7 @@ XU1 0 SUM VOUT vdd -2.5 NC_01 LTC6268
 XX1 SUM BIAS OPT KPDE030 KPDE030
 V2 N001 0 2.5
 C1 BIAS 0 10n
-V1 OPT 0 PWL(0n 0.195u 10n 0.195u 20n 0.195u 30n 0.437u 40n 0.437u 50n 0.437u 60n 0.437u 70n 0.437u 80n 0.437u 90n 0.437u 100n 0.437u 110n 0.437u 120n 0.437u 130n 0.437u 140n 0.437u 150n 0.437u 160n 0.437u 170n 0.195u 180n 0.195u 190n 0.195u 200n 0.195u 210n 0.195u 220n 0.195u 230n 0.195u 240n 0.195u 250n 0.195u 260n 0.195u 270n 0.195u 280n 0.195u 290n 0.195u 300n 0.437u 310n 0.195u 320n 0.437u 330n 0.195u 340n 0.437u 350n 0.195u 360n 0.437u 370n 0.195u 380n 0.437u 390n 0.195u 400n 0.437u 410n 0.195u 420n 0.437u 430n 0.195u 440n 0.437u 450n 0.195u 460n 0.437u 470n 0.195u 480n 0.437u 490n 0.195u 500n 0.437u) AC 0.2u
+V1 OPT 0 PWL( 0n 0.195u 20n 0.437u 40n 0.195u 60n 0.195u 80n 0.437u 100n 0.437u 120n 0.437u 140n 0.195u 160n 0.437u 180n 0.195u 200n 0.437u 220n 0.437u 240n 0.195u 260n 0.195u 280n 0.195u 300n 0.437u 320n 0.437u 340n 0.437u 360n 0.195u 380n 0.195u 400n 0.437u 420n 0.195u 440n 0.195u 460n 0.437u 480n 0.195u 500n 0.437u 520n 0.437u 540n 0.437u 560n 0.437u 580n 0.195u 600n 0.195u 620n 0.195u 640n 0.437u 660n 0.195u 680n 0.195u 700n 0.195u 720n 0.195u 740n 0.437u 760n 0.437u 780n 0.195u 800n 0.195u 820n 0.437u 840n 0.437u 860n 0.195u 880n 0.437u 900n 0.195u 920n 0.195u 940n 0.195u 960n 0.195u 980n 0.195u 1000n 0.437u 1020n 0.195u 1040n 0.437u 1060n 0.195u 1080n 0.437u 1100n 0.195u 1120n 0.195u 1140n 0.437u 1160n 0.437u 1180n 0.437u 1200n 0.437u 1220n 0.437u 1240n 0.437u 1260n 0.195u 1280n 0.437u 1300n 0.437u 1320n 0.195u 1340n 0.437u 1360n 0.195u 1380n 0.437u 1400n 0.437u 1420n 0.437u 1440n 0.195u 1460n 0.195u 1480n 0.437u 1500n 0.195u 1520n 0.437u 1540n 0.437u 1560n 0.195u 1580n 0.195u 1600n 0.195u 1620n 0.195u 1640n 0.437u 1660n 0.195u 1680n 0.437u 1700n 0.437u 1720n 0.437u 1740n 0.195u 1760n 0.437u 1780n 0.437u 1800n 0.437u 1820n 0.437u 1840n 0.195u 1860n 0.437u 1880n 0.195u 1900n 0.195u 1920n 0.437u 1940n 0.195u 1960n 0.195u 1980n 0.195u) AC 1
 R1 BIAS N001 100k
 V3 VDD 0 2.5
 C2 vdd 0 0.5µ
@@ -12,10 +12,10 @@ C3 SUM VOUT 0.5p
 V4 -2.5 0 -2.5
 C4 N002 VOUT 10n
 R3 N002 0 10k
-R4 N003 0 1.5k
-R5 buffer_out N003 5k
-XU2 TIA_out N003 buffer_out vdd -2.5 NC_02 LTC6228
-C5 buffer_out N003 1p
+R4 N004 0 1.5k
+R5 buffer_out N004 5k
+XU2 TIA_out N004 buffer_out vdd -2.5 NC_02 LTC6228
+C5 buffer_out N004 1p
 R6 TIA_out N002 30
 XU3 buffer_out dc_reference vdd 0 0 comparator_out NC_03 0 LT1711
 R7 vdd dc_reference 3.215k
@@ -29,13 +29,19 @@ C6 buffer_DC_value 0 1n
 R13 comparator1_DC_value comparator_out 316
 C7 comparator1_DC_value 0 1n
 R14 buffer_DC_value dc_reference 1k
+R15 BIAS 0 115k
+R16 N003 comparator2_out 33
+C8 fpga_in N003 5p
 .include "KPDE030.lib"
 ;.ac dec 100 10k 1G
-;.tran 2u
-.noise V(buffer_out) V1 dec 1000 1Meg 250Meg
-.meas noise Nfloor FIND V(onoise)*1e-9 AT 50Meg
-.meas noise Vn2    INTEG ( (V(onoise)*1e-9)^2 ) FROM 1Meg TO 250Meg
-.meas noise VnRMS  PARAM sqrt(Vn2)
+.tran 0 2u 0 10p
+.param P_opt=0.195u
+;noise V(TIA_out) V1 lin 100000 100 100Meg
+.meas noise Vn_10k FIND V(onoise) AT 10k
+.meas noise Vn_1M FIND V(onoise) AT 1Meg
+.meas noise Vn_50M FIND V(onoise) AT 50Meg
+.meas noise Vn2 INTEG(V(onoise)*V(onoise)) FROM 1k TO 60Meg
+.meas noise VnRMS PARAM sqrt(Vn2)
 .lib LTC1.lib
 .lib LTC2.lib
 .lib LTC6228.lib
